@@ -14,7 +14,6 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:paddingHorizontal="10dp"
-            android:clipToPadding="false"
             android:scrollbarStyle="outsideOverlay"
             android:background="@color/oui_background_color"
             android:scrollbars="vertical" />
