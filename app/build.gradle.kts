@@ -79,7 +79,7 @@ android {
 // في Kotlin DSL نضعه على مستوى المشروع ليكون الحل صريحاً.
 kotlin {
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
+        jvmTarget.set(JvmTarget.JVM_25)
     }
 }
 
