@@ -76,7 +76,7 @@ jobs:
           
           # إضافة ملفات الجافا المعدلة
           git add app/src/main/java/**/*.java || true
-          git add app/build.gradle || true
+          git add app/build.gradle.kts || true
           
           # (نصيحة) إذا كنت تريد حفظ ملفات الـ wrapper الجديدة في الريبو، قم بإلغاء تعليق الأسطر التالية:
           git add gradle/wrapper/
