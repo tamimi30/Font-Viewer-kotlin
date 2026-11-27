@@ -267,7 +267,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
 
         disposables.add(
-            dataStore.setPreviewText(text)
+            dataStore.setPreviewText(text ?: "")
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(

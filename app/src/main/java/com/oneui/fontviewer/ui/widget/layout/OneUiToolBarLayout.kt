@@ -280,11 +280,11 @@ open class OneUiToolBarLayout(context: Context, attrs: AttributeSet?) : LinearLa
         )
         ToolbarLayoutUtils.updateListBothSideMargin(
             mActivity,
-            findViewById<View>(R.id.toolbarlayout_bottom_corners)
+            findViewById<ViewGroup>(R.id.toolbarlayout_bottom_corners)
         )
         ToolbarLayoutUtils.updateListBothSideMargin(
             mActivity,
-            findViewById<View>(R.id.toolbarlayout_footer_content)
+            findViewById<ViewGroup>(R.id.toolbarlayout_footer_content)
         )
 
         val isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE

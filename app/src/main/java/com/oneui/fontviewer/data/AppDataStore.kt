@@ -4,7 +4,10 @@ import android.content.Context
 import android.util.Log
 
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.PreferencesKeys
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.rxjava3.RxPreferenceDataStoreBuilder
 import androidx.datastore.rxjava3.RxDataStore
@@ -40,45 +43,45 @@ class AppDataStore private constructor(context: Context) {
     private val snapshot: FlowableProcessor<Preferences> = snapshotSource.toSerialized()
 
     // Core keys
-    private val KEY_LANGUAGE_MODE: Preferences.Key<Int> = PreferencesKeys.intKey("language_mode")
-    private val KEY_THEME_MODE: Preferences.Key<Int> = PreferencesKeys.intKey("theme_mode")
-    private val KEY_THEME_AUTO: Preferences.Key<Boolean> = PreferencesKeys.booleanKey("theme_auto")
-    private val KEY_FONT_PREVIEW_ENABLED: Preferences.Key<Boolean> = PreferencesKeys.booleanKey("font_preview_enabled")
-    private val KEY_TRANSLATION_ENABLED: Preferences.Key<Boolean> = PreferencesKeys.booleanKey("translation_enabled")
-    private val KEY_PREVIEW_TEXT: Preferences.Key<String> = PreferencesKeys.stringKey("preview_text")
-    private val KEY_LAST_OPENED_FONT_PATH: Preferences.Key<String> = PreferencesKeys.stringKey("last_opened_font_path")
-    private val KEY_FOLDER_PATH: Preferences.Key<String> = PreferencesKeys.stringKey("folder_path")
+    private val KEY_LANGUAGE_MODE: Preferences.Key<Int> = intPreferencesKey("language_mode")
+    private val KEY_THEME_MODE: Preferences.Key<Int> = intPreferencesKey("theme_mode")
+    private val KEY_THEME_AUTO: Preferences.Key<Boolean> = booleanPreferencesKey("theme_auto")
+    private val KEY_FONT_PREVIEW_ENABLED: Preferences.Key<Boolean> = booleanPreferencesKey("font_preview_enabled")
+    private val KEY_TRANSLATION_ENABLED: Preferences.Key<Boolean> = booleanPreferencesKey("translation_enabled")
+    private val KEY_PREVIEW_TEXT: Preferences.Key<String> = stringPreferencesKey("preview_text")
+    private val KEY_LAST_OPENED_FONT_PATH: Preferences.Key<String> = stringPreferencesKey("last_opened_font_path")
+    private val KEY_FOLDER_PATH: Preferences.Key<String> = stringPreferencesKey("folder_path")
 
 
 
     // Local fonts keys (Local fonts)
-    private val KEY_SORT_TYPE: Preferences.Key<String> = PreferencesKeys.stringKey("sort_type")
-    private val KEY_SORT_ASCENDING: Preferences.Key<Boolean> = PreferencesKeys.booleanKey("sort_ascending")
-    private val KEY_LAST_OPENED_SYSTEM_FONT_PATH: Preferences.Key<String> = PreferencesKeys.stringKey("last_opened_system_font_path")
+    private val KEY_SORT_TYPE: Preferences.Key<String> = stringPreferencesKey("sort_type")
+    private val KEY_SORT_ASCENDING: Preferences.Key<Boolean> = booleanPreferencesKey("sort_ascending")
+    private val KEY_LAST_OPENED_SYSTEM_FONT_PATH: Preferences.Key<String> = stringPreferencesKey("last_opened_system_font_path")
 
     // ★ System fonts sort keys — منفصلة تماماً عن مفاتيح المجلد المحلي ★
-    private val KEY_SYSTEM_SORT_TYPE: Preferences.Key<String> = PreferencesKeys.stringKey("system_sort_type")
-    private val KEY_SYSTEM_SORT_ASCENDING: Preferences.Key<Boolean> = PreferencesKeys.booleanKey("system_sort_ascending")
+    private val KEY_SYSTEM_SORT_TYPE: Preferences.Key<String> = stringPreferencesKey("system_sort_type")
+    private val KEY_SYSTEM_SORT_ASCENDING: Preferences.Key<Boolean> = booleanPreferencesKey("system_sort_ascending")
 
     // ★ Favorites sort keys — منفصلة تماماً لتجنب أي تعارض مع القوائم الأخرى ★
-    private val KEY_FAVORITES_SORT_TYPE: Preferences.Key<String> = PreferencesKeys.stringKey("favorites_sort_type")
-    private val KEY_FAVORITES_SORT_ASCENDING: Preferences.Key<Boolean> = PreferencesKeys.booleanKey("favorites_sort_ascending")
+    private val KEY_FAVORITES_SORT_TYPE: Preferences.Key<String> = stringPreferencesKey("favorites_sort_type")
+    private val KEY_FAVORITES_SORT_ASCENDING: Preferences.Key<Boolean> = booleanPreferencesKey("favorites_sort_ascending")
 
     // ★ Favorites last opened font key — منفصل تماماً عن مفتاح الخطوط المحلية ★
-    private val KEY_LAST_OPENED_FAVORITE_FONT_PATH: Preferences.Key<String> = PreferencesKeys.stringKey("last_opened_favorite_font_path")
+    private val KEY_LAST_OPENED_FAVORITE_FONT_PATH: Preferences.Key<String> = stringPreferencesKey("last_opened_favorite_font_path")
 
     // Font viewer keys
-    private val KEY_VIEWER_FONT_PATH: Preferences.Key<String> = PreferencesKeys.stringKey("viewer_font_path")
-    private val KEY_VIEWER_FILE_NAME: Preferences.Key<String> = PreferencesKeys.stringKey("viewer_file_name")
-    private val KEY_VIEWER_REAL_NAME: Preferences.Key<String> = PreferencesKeys.stringKey("viewer_real_name")
-    private val KEY_VIEWER_FONT_WEIGHT: Preferences.Key<Float> = PreferencesKeys.floatKey("viewer_font_weight")
+    private val KEY_VIEWER_FONT_PATH: Preferences.Key<String> = stringPreferencesKey("viewer_font_path")
+    private val KEY_VIEWER_FILE_NAME: Preferences.Key<String> = stringPreferencesKey("viewer_file_name")
+    private val KEY_VIEWER_REAL_NAME: Preferences.Key<String> = stringPreferencesKey("viewer_real_name")
+    private val KEY_VIEWER_FONT_WEIGHT: Preferences.Key<Float> = floatPreferencesKey("viewer_font_weight")
 
     // ★ مفاتيح محاور الخط المتغير الإضافية: العرض، التدرج، الاستدارة، الميل، والتباعد الأحادي ★
-    private val KEY_VIEWER_FONT_WIDTH: Preferences.Key<Float> = PreferencesKeys.floatKey("viewer_font_width")
-    private val KEY_VIEWER_FONT_GRADE: Preferences.Key<Float> = PreferencesKeys.floatKey("viewer_font_grade")
-    private val KEY_VIEWER_FONT_ROUNDNESS: Preferences.Key<Float> = PreferencesKeys.floatKey("viewer_font_roundness")
-    private val KEY_VIEWER_FONT_ITALIC_AXIS: Preferences.Key<Float> = PreferencesKeys.floatKey("viewer_font_italic_axis")
-    private val KEY_VIEWER_FONT_MONO: Preferences.Key<Float> = PreferencesKeys.floatKey("viewer_font_mono")
+    private val KEY_VIEWER_FONT_WIDTH: Preferences.Key<Float> = floatPreferencesKey("viewer_font_width")
+    private val KEY_VIEWER_FONT_GRADE: Preferences.Key<Float> = floatPreferencesKey("viewer_font_grade")
+    private val KEY_VIEWER_FONT_ROUNDNESS: Preferences.Key<Float> = floatPreferencesKey("viewer_font_roundness")
+    private val KEY_VIEWER_FONT_ITALIC_AXIS: Preferences.Key<Float> = floatPreferencesKey("viewer_font_italic_axis")
+    private val KEY_VIEWER_FONT_MONO: Preferences.Key<Float> = floatPreferencesKey("viewer_font_mono")
 
     init {
         startSnapshotSync()
@@ -236,7 +239,7 @@ class AppDataStore private constructor(context: Context) {
 
     val lastOpenedFontPath: Flowable<String>
         get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_LAST_OPENED_FONT_PATH]
+            prefs[KEY_LAST_OPENED_FONT_PATH]!!
         })
 
     fun setLastOpenedFontPath(path: String?): Single<Preferences> {
@@ -257,7 +260,7 @@ class AppDataStore private constructor(context: Context) {
 
     val lastOpenedFavoriteFontPath: Flowable<String>
         get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_LAST_OPENED_FAVORITE_FONT_PATH]
+            prefs[KEY_LAST_OPENED_FAVORITE_FONT_PATH]!!
         })
 
     fun setLastOpenedFavoriteFontPath(path: String?): Single<Preferences> {
@@ -278,7 +281,7 @@ class AppDataStore private constructor(context: Context) {
 
     val folderPath: Flowable<String>
         get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_FOLDER_PATH]
+            prefs[KEY_FOLDER_PATH]!!
         })
 
     fun setFolderPath(path: String?): Single<Preferences> {
@@ -389,7 +392,7 @@ class AppDataStore private constructor(context: Context) {
 
     val lastOpenedSystemFontPath: Flowable<String>
         get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_LAST_OPENED_SYSTEM_FONT_PATH]
+            prefs[KEY_LAST_OPENED_SYSTEM_FONT_PATH]!!
         })
 
     fun setLastOpenedSystemFontPath(path: String?): Single<Preferences> {
@@ -434,17 +437,17 @@ class AppDataStore private constructor(context: Context) {
 
     val viewerFontPath: Flowable<String>
         get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_VIEWER_FONT_PATH]
+            prefs[KEY_VIEWER_FONT_PATH]!!
         })
 
     val viewerFileName: Flowable<String>
         get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_VIEWER_FILE_NAME]
+            prefs[KEY_VIEWER_FILE_NAME]!!
         })
 
     val viewerRealName: Flowable<String>
         get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_VIEWER_REAL_NAME]
+            prefs[KEY_VIEWER_REAL_NAME]!!
         })
 
 

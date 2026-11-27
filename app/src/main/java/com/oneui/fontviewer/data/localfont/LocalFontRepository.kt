@@ -376,13 +376,13 @@ class LocalFontRepository private constructor(context: Context) {
     }
 
     private fun createFontEntityFromFile(fileInfo: FontFileInfo, isSystem: Boolean): FontEntity {
-        val entity = FontEntity(fileInfo.path, fileInfo.name)
+        val entity = FontEntity(fileInfo.path, fileInfo.name ?: "")
         entity.size = fileInfo.size
         entity.lastModified = fileInfo.lastModified
         entity.isSystemFont = isSystem
         entity.ttcIndex = 0
 
-        val fileName = fileInfo.name.lowercase()
+        val fileName = (fileInfo.name ?: "").lowercase()
         if (fileName.endsWith(".ttc")) {
             entity.fontType = "TTC"
         } else if (fileName.endsWith(".otf")) {

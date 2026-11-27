@@ -5,6 +5,7 @@ import androidx.lifecycle.LiveData
 
 import com.oneui.fontviewer.data.update.model.UpdateInfo
 import com.oneui.fontviewer.ui.widget.layout.OneUiDrawerLayout
+import com.oneui.fontviewer.ui.widget.layout.OneUiToolBarLayout
 
 /**
  * يعرض المؤشر البرتقالي (الدائرة التي فيها N أو ج) عند توفر تحديث، على:
@@ -27,7 +28,7 @@ class UpdateBadgeController(private val mDrawerLayout: OneUiDrawerLayout) {
         }
         mBadgeShown = show
 
-        val badge = if (show) OneUiDrawerLayout.N_BADGE else 0
+        val badge = if (show) OneUiToolBarLayout.N_BADGE else 0
         mDrawerLayout.setButtonBadges(badge, badge)
     }
 }

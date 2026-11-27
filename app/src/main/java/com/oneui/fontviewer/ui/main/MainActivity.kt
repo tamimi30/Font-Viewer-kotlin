@@ -12,7 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 
-import androidx.core.splashscreen.SplashScreen
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -70,7 +70,7 @@ class MainActivity : BaseActivity(),
     private lateinit var mSearchCoordinator: SearchCoordinator
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen = SplashScreen.installSplashScreen(this)
+        val splashScreen = installSplashScreen()
         mSplashStartTime = System.currentTimeMillis()
 
         super.onCreate(savedInstanceState)

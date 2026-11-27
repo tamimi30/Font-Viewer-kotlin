@@ -343,7 +343,7 @@ class SettingsFragment : PreferenceFragmentCompat() {
 
             updateRelatedCardText(mContext!!)
 
-            card.show(this)
+            card?.show(this)
         }
     }
 
