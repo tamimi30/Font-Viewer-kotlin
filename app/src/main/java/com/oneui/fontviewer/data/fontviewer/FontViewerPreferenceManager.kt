@@ -4,9 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 
-import io.reactivex.rxjava3.schedulers.Schedulers
-
 import com.oneui.fontviewer.data.AppDataStore
+import com.oneui.fontviewer.data.firstBlocking
 import com.oneui.fontviewer.data.common.variable.VariableFontAxisExtractor
 
 class FontViewerPreferenceManager(context: Context) {
@@ -28,18 +27,16 @@ class FontViewerPreferenceManager(context: Context) {
             return
         }
 
-        dataStore.setLastViewedFont(fontPath, fileName, realName)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Saved last viewed font: $fontPath") },
-                { error -> Log.e(TAG, "Error saving font: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving font: " + error.message) },
+            onSuccess = { Log.d(TAG, "Saved last viewed font: $fontPath") }
+        ) { dataStore.setLastViewedFont(fontPath, fileName, realName) }
     }
 
     val lastViewedFontPath: String?
         get() {
             return try {
-                dataStore.viewerFontPath.blockingFirst()
+                dataStore.viewerFontPath.firstBlocking()
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting font path: " + e.message)
                 null
@@ -49,7 +46,7 @@ class FontViewerPreferenceManager(context: Context) {
     val lastViewedFontFileName: String?
         get() {
             return try {
-                dataStore.viewerFileName.blockingFirst()
+                dataStore.viewerFileName.firstBlocking()
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting file name: " + e.message)
                 null
@@ -59,7 +56,7 @@ class FontViewerPreferenceManager(context: Context) {
     val lastViewedFontRealName: String?
         get() {
             return try {
-                dataStore.viewerRealName.blockingFirst()
+                dataStore.viewerRealName.firstBlocking()
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting real name: " + e.message)
                 null
@@ -67,26 +64,22 @@ class FontViewerPreferenceManager(context: Context) {
         }
 
     fun clearLastViewedFont() {
-        dataStore.clearLastViewedFont()
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Cleared last viewed font") },
-                { error -> Log.e(TAG, "Error clearing font: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error clearing font: " + error.message) },
+            onSuccess = { Log.d(TAG, "Cleared last viewed font") }
+        ) { dataStore.clearLastViewedFont() }
     }
 
     fun saveFontWeight(fontWeight: Float) {
-        dataStore.setViewerFontWeight(fontWeight)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Saved font weight: $fontWeight") },
-                { error -> Log.e(TAG, "Error saving font weight: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving font weight: " + error.message) },
+            onSuccess = { Log.d(TAG, "Saved font weight: $fontWeight") }
+        ) { dataStore.setViewerFontWeight(fontWeight) }
     }
 
     fun getFontWeight(defaultWeight: Float): Float {
         return try {
-            val value: Float? = dataStore.viewerFontWeight.blockingFirst()
+            val value: Float? = dataStore.viewerFontWeight.firstBlocking()
             value ?: defaultWeight
         } catch (e: Exception) {
             Log.e(TAG, "Error getting font weight: " + e.message)
@@ -95,17 +88,15 @@ class FontViewerPreferenceManager(context: Context) {
     }
 
     fun saveFontWidth(fontWidth: Float) {
-        dataStore.setViewerFontWidth(fontWidth)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Saved font width: $fontWidth") },
-                { error -> Log.e(TAG, "Error saving font width: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving font width: " + error.message) },
+            onSuccess = { Log.d(TAG, "Saved font width: $fontWidth") }
+        ) { dataStore.setViewerFontWidth(fontWidth) }
     }
 
     fun getFontWidth(defaultWidth: Float): Float {
         return try {
-            val value: Float? = dataStore.viewerFontWidth.blockingFirst()
+            val value: Float? = dataStore.viewerFontWidth.firstBlocking()
             value ?: defaultWidth
         } catch (e: Exception) {
             Log.e(TAG, "Error getting font width: " + e.message)
@@ -114,17 +105,15 @@ class FontViewerPreferenceManager(context: Context) {
     }
 
     fun saveFontGrade(fontGrade: Float) {
-        dataStore.setViewerFontGrade(fontGrade)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Saved font grade: $fontGrade") },
-                { error -> Log.e(TAG, "Error saving font grade: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving font grade: " + error.message) },
+            onSuccess = { Log.d(TAG, "Saved font grade: $fontGrade") }
+        ) { dataStore.setViewerFontGrade(fontGrade) }
     }
 
     fun getFontGrade(defaultGrade: Float): Float {
         return try {
-            val value: Float? = dataStore.viewerFontGrade.blockingFirst()
+            val value: Float? = dataStore.viewerFontGrade.firstBlocking()
             value ?: defaultGrade
         } catch (e: Exception) {
             Log.e(TAG, "Error getting font grade: " + e.message)
@@ -133,17 +122,15 @@ class FontViewerPreferenceManager(context: Context) {
     }
 
     fun saveFontRoundness(fontRoundness: Float) {
-        dataStore.setViewerFontRoundness(fontRoundness)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Saved font roundness: $fontRoundness") },
-                { error -> Log.e(TAG, "Error saving font roundness: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving font roundness: " + error.message) },
+            onSuccess = { Log.d(TAG, "Saved font roundness: $fontRoundness") }
+        ) { dataStore.setViewerFontRoundness(fontRoundness) }
     }
 
     fun getFontRoundness(defaultRoundness: Float): Float {
         return try {
-            val value: Float? = dataStore.viewerFontRoundness.blockingFirst()
+            val value: Float? = dataStore.viewerFontRoundness.firstBlocking()
             value ?: defaultRoundness
         } catch (e: Exception) {
             Log.e(TAG, "Error getting font roundness: " + e.message)
@@ -152,17 +139,15 @@ class FontViewerPreferenceManager(context: Context) {
     }
 
     fun saveFontItalicAxis(italValue: Float) {
-        dataStore.setViewerFontItalicAxis(italValue)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Saved font italic axis: $italValue") },
-                { error -> Log.e(TAG, "Error saving font italic axis: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving font italic axis: " + error.message) },
+            onSuccess = { Log.d(TAG, "Saved font italic axis: $italValue") }
+        ) { dataStore.setViewerFontItalicAxis(italValue) }
     }
 
     fun getFontItalicAxis(defaultItal: Float): Float {
         return try {
-            val value: Float? = dataStore.viewerFontItalicAxis.blockingFirst()
+            val value: Float? = dataStore.viewerFontItalicAxis.firstBlocking()
             value ?: defaultItal
         } catch (e: Exception) {
             Log.e(TAG, "Error getting font italic axis: " + e.message)
@@ -171,17 +156,15 @@ class FontViewerPreferenceManager(context: Context) {
     }
 
     fun saveFontMono(monoValue: Float) {
-        dataStore.setViewerFontMono(monoValue)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs -> Log.d(TAG, "Saved font monospace: $monoValue") },
-                { error -> Log.e(TAG, "Error saving font monospace: " + error.message) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving font monospace: " + error.message) },
+            onSuccess = { Log.d(TAG, "Saved font monospace: $monoValue") }
+        ) { dataStore.setViewerFontMono(monoValue) }
     }
 
     fun getFontMono(defaultMono: Float): Float {
         return try {
-            val value: Float? = dataStore.viewerFontMono.blockingFirst()
+            val value: Float? = dataStore.viewerFontMono.firstBlocking()
             value ?: defaultMono
         } catch (e: Exception) {
             Log.e(TAG, "Error getting font monospace: " + e.message)

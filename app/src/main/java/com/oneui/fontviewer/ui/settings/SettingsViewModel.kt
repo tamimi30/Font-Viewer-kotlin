@@ -8,10 +8,12 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.viewModelScope
 
-import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
-import io.reactivex.rxjava3.disposables.CompositeDisposable
-import io.reactivex.rxjava3.schedulers.Schedulers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.launch
 
 import com.oneui.fontviewer.R
 import com.oneui.fontviewer.data.AppDataStore
@@ -21,7 +23,6 @@ import com.oneui.fontviewer.data.settings.SettingsRepository
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val dataStore: AppDataStore = AppDataStore.getInstance(application)
-    private val disposables = CompositeDisposable()
 
     private val _languageMode = MutableLiveData<Int>()
     private val _themeMode = MutableLiveData<Int>()
@@ -39,66 +40,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun observeDataStore() {
-        disposables.add(
-            dataStore.languageMode
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { value -> _languageMode.setValue(value) },
-                    { error -> Log.e(TAG, "Error observing language mode", error) }
-                )
-        )
+        observe(dataStore.languageMode, _languageMode, "language mode")
+        observe(dataStore.themeMode, _themeMode, "theme mode")
+        observe(dataStore.themeAuto, _themeAuto, "theme auto")
+        observe(dataStore.fontPreviewEnabled, _fontPreviewEnabled, "font preview")
+        observe(dataStore.translationEnabled, _translationEnabled, "translation")
+        observe(dataStore.previewText, _previewText, "preview text")
+    }
 
-        disposables.add(
-            dataStore.themeMode
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { value -> _themeMode.setValue(value) },
-                    { error -> Log.e(TAG, "Error observing theme mode", error) }
-                )
-        )
-
-        disposables.add(
-            dataStore.themeAuto
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { value -> _themeAuto.setValue(value) },
-                    { error -> Log.e(TAG, "Error observing theme auto", error) }
-                )
-        )
-
-
-        disposables.add(
-            dataStore.fontPreviewEnabled
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { value -> _fontPreviewEnabled.setValue(value) },
-                    { error -> Log.e(TAG, "Error observing font preview", error) }
-                )
-        )
-
-        disposables.add(
-            dataStore.translationEnabled
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { value -> _translationEnabled.setValue(value) },
-                    { error -> Log.e(TAG, "Error observing translation", error) }
-                )
-        )
-
-        disposables.add(
-            dataStore.previewText
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { value -> _previewText.setValue(value) },
-                    { error -> Log.e(TAG, "Error observing preview text", error) }
-                )
-        )
+    /** يجمع قيم الـ Flow ويمررها إلى LiveData على الخيط الرئيسي (viewModelScope). */
+    private fun <T> observe(source: Flow<T>, target: MutableLiveData<T>, name: String) {
+        viewModelScope.launch {
+            source
+                .catch { error -> Log.e(TAG, "Error observing $name", error) }
+                .collect { value -> target.value = value }
+        }
     }
 
 
@@ -130,60 +86,62 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        disposables.add(
-            dataStore.setLanguageMode(mode)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { _ ->
-                        Log.d(TAG, "Language mode saved to DataStore: $mode")
+        viewModelScope.launch {
+            try {
+                dataStore.setLanguageMode(mode)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting language mode", e)
+                return@launch
+            }
 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            val localeManager = getApplication<Application>().getSystemService(android.app.LocaleManager::class.java)
-                            if (localeManager != null) {
-                                if (mode == SettingsRepository.LANGUAGE_ARABIC) {
-                                    localeManager.applicationLocales = android.os.LocaleList.forLanguageTags("ar")
-                                } else if (mode == SettingsRepository.LANGUAGE_ENGLISH) {
-                                    localeManager.applicationLocales = android.os.LocaleList.forLanguageTags("en")
-                                } else {
-                                    localeManager.applicationLocales = android.os.LocaleList.getEmptyLocaleList()
-                                }
-                            }
-                            // ★ من أندرويد 13 فما فوق، النظام نفسه يعيد إنشاء كل الأنشطة
-                            // تلقائياً بمجرد استدعاء setApplicationLocales، لذلك لا نستدعي
-                            // recreateAllActivities() هنا. استدعاؤها يدوياً هو ما كان يسبب
-                            // الوميض المزدوج (إعادة إنشاء من النظام + إعادة إنشاء يدوية).
-                        } else {
-                            val locale: java.util.Locale
-                            if (mode == SettingsRepository.LANGUAGE_ARABIC) {
-                                locale = java.util.Locale("ar")
-                            } else if (mode == SettingsRepository.LANGUAGE_ENGLISH) {
-                                locale = java.util.Locale("en")
-                            } else {
-                                locale = android.content.res.Resources.getSystem().configuration.locales.get(0)
-                            }
-                            java.util.Locale.setDefault(locale)
+            Log.d(TAG, "Language mode saved to DataStore: $mode")
 
-                            // ★ في هذا المسار فقط (ما قبل أندرويد 13) النظام لا يعيد الإنشاء
-                            // تلقائياً، فنحتاج فعلياً لطلبه يدوياً هنا.
-                            _settingsEvent.setValue(SettingsEvent(SettingsEventType.RECREATE_ALL_ACTIVITIES))
-                        }
-                    },
-                    { error -> Log.e(TAG, "Error setting language mode", error) }
-                )
-        )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val localeManager = getApplication<Application>().getSystemService(android.app.LocaleManager::class.java)
+                if (localeManager != null) {
+                    if (mode == SettingsRepository.LANGUAGE_ARABIC) {
+                        localeManager.applicationLocales = android.os.LocaleList.forLanguageTags("ar")
+                    } else if (mode == SettingsRepository.LANGUAGE_ENGLISH) {
+                        localeManager.applicationLocales = android.os.LocaleList.forLanguageTags("en")
+                    } else {
+                        localeManager.applicationLocales = android.os.LocaleList.getEmptyLocaleList()
+                    }
+                }
+                // ★ من أندرويد 13 فما فوق، النظام نفسه يعيد إنشاء كل الأنشطة
+                // تلقائياً بمجرد استدعاء setApplicationLocales، لذلك لا نستدعي
+                // recreateAllActivities() هنا. استدعاؤها يدوياً هو ما كان يسبب
+                // الوميض المزدوج (إعادة إنشاء من النظام + إعادة إنشاء يدوية).
+            } else {
+                val locale: java.util.Locale
+                if (mode == SettingsRepository.LANGUAGE_ARABIC) {
+                    locale = java.util.Locale("ar")
+                } else if (mode == SettingsRepository.LANGUAGE_ENGLISH) {
+                    locale = java.util.Locale("en")
+                } else {
+                    locale = android.content.res.Resources.getSystem().configuration.locales.get(0)
+                }
+                java.util.Locale.setDefault(locale)
+
+                // ★ في هذا المسار فقط (ما قبل أندرويد 13) النظام لا يعيد الإنشاء
+                // تلقائياً، فنحتاج فعلياً لطلبه يدوياً هنا.
+                _settingsEvent.setValue(SettingsEvent(SettingsEventType.RECREATE_ALL_ACTIVITIES))
+            }
+        }
     }
 
     fun syncLanguageModeFromSystem(mode: Int) {
-        disposables.add(
-            dataStore.setLanguageMode(mode)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { _ -> Log.d(TAG, "Language mode synced from system to DataStore: $mode") },
-                    { error -> Log.e(TAG, "Error syncing language mode from system", error) }
-                )
-        )
+        viewModelScope.launch {
+            try {
+                dataStore.setLanguageMode(mode)
+                Log.d(TAG, "Language mode synced from system to DataStore: $mode")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error syncing language mode from system", e)
+            }
+        }
     }
 
 
@@ -194,19 +152,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
         Log.d(TAG, "Setting theme mode to: $mode")
 
-        disposables.add(
-            dataStore.setThemeAuto(false)
-                .flatMap { _ -> dataStore.setThemeMode(mode) }
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { _ ->
-                        Log.d(TAG, "Theme mode updated and auto disabled")
-                        ThemeHelper.applyTheme(getApplication())
-                    },
-                    { error -> Log.e(TAG, "Error setting theme mode", error) }
-                )
-        )
+        viewModelScope.launch {
+            try {
+                // بالترتيب: تعطيل الوضع التلقائي أولاً ثم حفظ الوضع المختار (كان flatMap)
+                dataStore.setThemeAuto(false)
+                dataStore.setThemeMode(mode)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting theme mode", e)
+                return@launch
+            }
+
+            Log.d(TAG, "Theme mode updated and auto disabled")
+            ThemeHelper.applyTheme(getApplication())
+        }
     }
 
     fun setThemeAuto(enabled: Boolean) {
@@ -216,18 +176,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
         Log.d(TAG, "Setting theme auto to: $enabled")
 
-        disposables.add(
-            dataStore.setThemeAuto(enabled)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { _ ->
-                        Log.d(TAG, "Theme auto updated")
-                        ThemeHelper.applyTheme(getApplication())
-                    },
-                    { error -> Log.e(TAG, "Error setting theme auto", error) }
-                )
-        )
+        viewModelScope.launch {
+            try {
+                dataStore.setThemeAuto(enabled)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting theme auto", e)
+                return@launch
+            }
+
+            Log.d(TAG, "Theme auto updated")
+            ThemeHelper.applyTheme(getApplication())
+        }
     }
 
 
@@ -236,14 +197,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        disposables.add(
-            dataStore.setFontPreviewEnabled(enabled)
-                .subscribeOn(Schedulers.io())
-                .subscribe(
-                    { _ -> Log.d(TAG, "Font preview updated to: $enabled") },
-                    { error -> Log.e(TAG, "Error setting font preview", error) }
-                )
-        )
+        viewModelScope.launch {
+            try {
+                dataStore.setFontPreviewEnabled(enabled)
+                Log.d(TAG, "Font preview updated to: $enabled")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting font preview", e)
+            }
+        }
     }
 
     fun setTranslationEnabled(enabled: Boolean) {
@@ -251,14 +214,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        disposables.add(
-            dataStore.setTranslationEnabled(enabled)
-                .subscribeOn(Schedulers.io())
-                .subscribe(
-                    { _ -> Log.d(TAG, "Translation updated to: $enabled") },
-                    { error -> Log.e(TAG, "Error setting translation", error) }
-                )
-        )
+        viewModelScope.launch {
+            try {
+                dataStore.setTranslationEnabled(enabled)
+                Log.d(TAG, "Translation updated to: $enabled")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting translation", e)
+            }
+        }
     }
 
     fun setPreviewText(text: String?) {
@@ -266,28 +231,29 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             return
         }
 
-        disposables.add(
-            dataStore.setPreviewText(text ?: "")
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { _ ->
-                        Log.d(TAG, "Preview text updated")
-                        _settingsEvent.setValue(
-                            SettingsEvent(
-                                SettingsEventType.SHOW_TOAST,
-                                R.string.toast_settings_preview_text_updated
-                            )
-                        )
-                    },
-                    { error -> Log.e(TAG, "Error setting preview text", error) }
+        viewModelScope.launch {
+            try {
+                dataStore.setPreviewText(text ?: "")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting preview text", e)
+                return@launch
+            }
+
+            Log.d(TAG, "Preview text updated")
+            _settingsEvent.setValue(
+                SettingsEvent(
+                    SettingsEventType.SHOW_TOAST,
+                    R.string.toast_settings_preview_text_updated
                 )
-        )
+            )
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
-        disposables.clear()
+        // viewModelScope يُلغى تلقائياً هنا، فلا حاجة لتنظيف يدوي (كان disposables.clear())
         Log.d(TAG, "ViewModel cleared")
     }
 

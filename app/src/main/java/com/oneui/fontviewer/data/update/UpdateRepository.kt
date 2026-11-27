@@ -19,10 +19,12 @@ import com.oneui.fontviewer.data.update.source.UpdateSource
 
 import java.util.Optional
 
-import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
-import io.reactivex.rxjava3.disposables.CompositeDisposable
-import io.reactivex.rxjava3.core.Single
-import io.reactivex.rxjava3.schedulers.Schedulers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * المصدر الوحيد لحالة التحديث في التطبيق.
@@ -49,7 +51,10 @@ class UpdateRepository private constructor(context: Context) {
     private val appContext: Context = context.applicationContext
     private val preferences: UpdatePreferenceManager = UpdatePreferenceManager(appContext)
     private val updateSource: UpdateSource = createUpdateSource()
-    private val disposables = CompositeDisposable()
+
+    // يعمل على الخيط الرئيسي (جميع الدوال العامة تُستدعى منه)، والشبكة تُنفَّذ داخل withContext(Dispatchers.IO).
+    // المستودع Singleton على مستوى التطبيق فالنطاق لا يُلغى أبداً.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     // null = لا يتوجد تحديث متوفر
     private val _availableUpdate: MutableLiveData<UpdateInfo?> = MutableLiveData(loadStoredUpdate())
@@ -155,15 +160,17 @@ class UpdateRepository private constructor(context: Context) {
         }
 
         checkInFlight = true
-        disposables.add(
-            Single.fromCallable { updateSource.checkForUpdate() }
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                    { result -> onCheckSucceeded(result) },
-                    { error -> onCheckFailed(error) }
-                )
-        )
+        scope.launch {
+            val result: Optional<UpdateInfo> = try {
+                withContext(Dispatchers.IO) { updateSource.checkForUpdate() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                onCheckFailed(e)
+                return@launch
+            }
+            onCheckSucceeded(result)
+        }
     }
 
     private fun onCheckSucceeded(availableUpdate: Optional<UpdateInfo>) {

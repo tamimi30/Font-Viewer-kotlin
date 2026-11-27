@@ -3,9 +3,8 @@ package com.oneui.fontviewer.data.common.list
 import android.content.Context
 import android.util.Log
 
-import io.reactivex.rxjava3.schedulers.Schedulers
-
 import com.oneui.fontviewer.data.AppDataStore
+import com.oneui.fontviewer.data.firstBlocking
 
 class SortPreferenceManager(context: Context) {
 
@@ -13,17 +12,17 @@ class SortPreferenceManager(context: Context) {
 
     fun loadSortTypeName(listType: String): String {
         return when (listType) {
-            LIST_TYPE_SYSTEM -> dataStore.systemSortType.blockingFirst()
-            LIST_TYPE_FAVORITES -> dataStore.favoritesSortType.blockingFirst()
-            else -> dataStore.sortType.blockingFirst()
+            LIST_TYPE_SYSTEM -> dataStore.systemSortType.firstBlocking()
+            LIST_TYPE_FAVORITES -> dataStore.favoritesSortType.firstBlocking()
+            else -> dataStore.sortType.firstBlocking()
         }
     }
 
     fun loadSortAscending(listType: String): Boolean {
         return when (listType) {
-            LIST_TYPE_SYSTEM -> dataStore.systemSortAscending.blockingFirst()
-            LIST_TYPE_FAVORITES -> dataStore.favoritesSortAscending.blockingFirst()
-            else -> dataStore.sortAscending.blockingFirst()
+            LIST_TYPE_SYSTEM -> dataStore.systemSortAscending.firstBlocking()
+            LIST_TYPE_FAVORITES -> dataStore.favoritesSortAscending.firstBlocking()
+            else -> dataStore.sortAscending.firstBlocking()
         }
     }
 
@@ -31,28 +30,22 @@ class SortPreferenceManager(context: Context) {
         when (listType) {
 
             LIST_TYPE_SYSTEM ->
-                dataStore.setSystemSortType(sortTypeName)
-                    .subscribeOn(Schedulers.io())
-                    .subscribe(
-                        { Log.d(TAG, "[SYSTEM] Saved sort type: $sortTypeName") },
-                        { error -> Log.e(TAG, "[SYSTEM] Error saving sort type", error) }
-                    )
+                dataStore.launchWrite(
+                    onError = { error -> Log.e(TAG, "[SYSTEM] Error saving sort type", error) },
+                    onSuccess = { Log.d(TAG, "[SYSTEM] Saved sort type: $sortTypeName") }
+                ) { dataStore.setSystemSortType(sortTypeName) }
 
             LIST_TYPE_FAVORITES ->
-                dataStore.setFavoritesSortType(sortTypeName)
-                    .subscribeOn(Schedulers.io())
-                    .subscribe(
-                        { Log.d(TAG, "[FAVORITES] Saved sort type: $sortTypeName") },
-                        { error -> Log.e(TAG, "[FAVORITES] Error saving sort type", error) }
-                    )
+                dataStore.launchWrite(
+                    onError = { error -> Log.e(TAG, "[FAVORITES] Error saving sort type", error) },
+                    onSuccess = { Log.d(TAG, "[FAVORITES] Saved sort type: $sortTypeName") }
+                ) { dataStore.setFavoritesSortType(sortTypeName) }
 
             else ->
-                dataStore.setSortType(sortTypeName)
-                    .subscribeOn(Schedulers.io())
-                    .subscribe(
-                        { Log.d(TAG, "[LOCAL] Saved sort type: $sortTypeName") },
-                        { error -> Log.e(TAG, "[LOCAL] Error saving sort type", error) }
-                    )
+                dataStore.launchWrite(
+                    onError = { error -> Log.e(TAG, "[LOCAL] Error saving sort type", error) },
+                    onSuccess = { Log.d(TAG, "[LOCAL] Saved sort type: $sortTypeName") }
+                ) { dataStore.setSortType(sortTypeName) }
         }
     }
 
@@ -60,28 +53,22 @@ class SortPreferenceManager(context: Context) {
         when (listType) {
 
             LIST_TYPE_SYSTEM ->
-                dataStore.setSystemSortAscending(ascending)
-                    .subscribeOn(Schedulers.io())
-                    .subscribe(
-                        { Log.d(TAG, "[SYSTEM] Saved sort ascending: $ascending") },
-                        { error -> Log.e(TAG, "[SYSTEM] Error saving sort ascending", error) }
-                    )
+                dataStore.launchWrite(
+                    onError = { error -> Log.e(TAG, "[SYSTEM] Error saving sort ascending", error) },
+                    onSuccess = { Log.d(TAG, "[SYSTEM] Saved sort ascending: $ascending") }
+                ) { dataStore.setSystemSortAscending(ascending) }
 
             LIST_TYPE_FAVORITES ->
-                dataStore.setFavoritesSortAscending(ascending)
-                    .subscribeOn(Schedulers.io())
-                    .subscribe(
-                        { Log.d(TAG, "[FAVORITES] Saved sort ascending: $ascending") },
-                        { error -> Log.e(TAG, "[FAVORITES] Error saving sort ascending", error) }
-                    )
+                dataStore.launchWrite(
+                    onError = { error -> Log.e(TAG, "[FAVORITES] Error saving sort ascending", error) },
+                    onSuccess = { Log.d(TAG, "[FAVORITES] Saved sort ascending: $ascending") }
+                ) { dataStore.setFavoritesSortAscending(ascending) }
 
             else ->
-                dataStore.setSortAscending(ascending)
-                    .subscribeOn(Schedulers.io())
-                    .subscribe(
-                        { Log.d(TAG, "[LOCAL] Saved sort ascending: $ascending") },
-                        { error -> Log.e(TAG, "[LOCAL] Error saving sort ascending", error) }
-                    )
+                dataStore.launchWrite(
+                    onError = { error -> Log.e(TAG, "[LOCAL] Error saving sort ascending", error) },
+                    onSuccess = { Log.d(TAG, "[LOCAL] Saved sort ascending: $ascending") }
+                ) { dataStore.setSortAscending(ascending) }
         }
     }
 

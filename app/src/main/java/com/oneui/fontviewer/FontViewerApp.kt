@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatDelegate
 
 import com.oneui.fontviewer.data.common.room.FontDatabase
 import com.oneui.fontviewer.data.AppDataStore
+import com.oneui.fontviewer.data.firstBlocking
 import com.oneui.fontviewer.data.localfont.LocalFontRepository
 import com.oneui.fontviewer.data.systemfont.SystemFontRepository
 import com.oneui.fontviewer.data.localfont.LocalFontCache
@@ -19,7 +20,6 @@ import com.oneui.fontviewer.utils.CrashHandler
 
 import java.lang.ref.WeakReference
 import java.util.ArrayList
-import java.util.concurrent.TimeUnit
 
 /**
  * App - النسخة المحسّنة لحل مشكلة وميض الثيم
@@ -121,7 +121,7 @@ class FontViewerApp : Application() {
      * تطبيق الثيم بشكل متزامن (Blocking) قبل رسم أي واجهة
      *
      * ملاحظة مهمة:
-     * - استخدام blockingFirst() آمن هنا لأننا نقرأ قيمة واحدة صغيرة فقط
+     * - استخدام firstBlocking() آمن هنا لأننا نقرأ قيمة واحدة صغيرة فقط
      * - العملية سريعة جداً (أقل من 10ms عادةً) ولن تسبب تجميد
      * - هذا يضمن تطبيق الثيم الصحيح قبل ظهور أي شاشة
      *
@@ -131,9 +131,7 @@ class FontViewerApp : Application() {
     private fun applyInitialTheme() {
         try {
             // قراءة إعداد الثيم التلقائي بشكل متزامن
-            val isAuto: Boolean? = appDataStore.themeAuto
-                .timeout(THEME_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                .blockingFirst()
+            val isAuto: Boolean? = appDataStore.themeAuto.firstBlocking(THEME_READ_TIMEOUT_MS)
 
             if (isAuto != null && isAuto) {
                 // الثيم تلقائي - اتبع إعدادات النظام
@@ -142,9 +140,7 @@ class FontViewerApp : Application() {
                 Log.d(TAG, "✓ Theme set to FOLLOW_SYSTEM (Blocking Mode)")
             } else {
                 // الثيم يدوي - اقرأ الوضع المحدد
-                val themeMode: Int? = appDataStore.themeMode
-                    .timeout(THEME_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                    .blockingFirst()
+                val themeMode: Int? = appDataStore.themeMode.firstBlocking(THEME_READ_TIMEOUT_MS)
 
                 if (themeMode != null && themeMode == 1) {
                     // وضع داكن
@@ -176,8 +172,8 @@ class FontViewerApp : Application() {
     private fun applySavedThemeWhenReady() {
         Thread({
             try {
-                val isAuto: Boolean? = appDataStore.themeAuto.blockingFirst()
-                val themeMode: Int? = appDataStore.themeMode.blockingFirst()
+                val isAuto: Boolean? = appDataStore.themeAuto.firstBlocking()
+                val themeMode: Int? = appDataStore.themeMode.firstBlocking()
 
                 val nightMode: Int
                 if (isAuto != null && isAuto) {

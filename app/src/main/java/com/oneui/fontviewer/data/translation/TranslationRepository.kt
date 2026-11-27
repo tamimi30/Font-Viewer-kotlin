@@ -4,13 +4,24 @@ import android.content.Context
 import android.util.Log
 
 import com.oneui.fontviewer.data.AppDataStore
+import com.oneui.fontviewer.data.firstBlocking
 import com.oneui.fontviewer.data.settings.SettingsRepository
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class TranslationRepository(private val context: Context) {
 
     private val translationCache: TranslationDataStore = TranslationDataStore.getInstance(context)
     private val appDataStore: AppDataStore = AppDataStore.getInstance(context)
     private val translationApi: TranslationApi = TranslationApi(context)
+
+    // كان كل طلب ترجمة يبدأ Thread جديداً؛ الآن يعمل داخل coroutine على Dispatchers.IO
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     interface TranslationCallback {
         fun onTranslationComplete(translatedData: Map<String, String>)
@@ -31,7 +42,7 @@ class TranslationRepository(private val context: Context) {
             return
         }
 
-        Thread {
+        scope.launch {
             try {
                 val translatedData: MutableMap<String, String> = HashMap(metadata)
                 var translationErrorType: String? = null
@@ -56,7 +67,9 @@ class TranslationRepository(private val context: Context) {
 
                             var cachedTranslation: String? = ""
                             try {
-                                cachedTranslation = translationCache.getTranslation(cacheKey).blockingGet()
+                                cachedTranslation = translationCache.getTranslation(cacheKey)
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error reading from cache: " + e.message)
                             }
@@ -82,7 +95,7 @@ class TranslationRepository(private val context: Context) {
                                     Log.d(TAG, "Translated and cached field: $field")
                                 }
 
-                                Thread.sleep(100)
+                                delay(100)
                             }
                         }
                     }
@@ -96,11 +109,13 @@ class TranslationRepository(private val context: Context) {
                     callback.onTranslationComplete(translatedData)
                 }
 
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Translation failed: " + e.message, e)
                 callback.onTranslationFailed(e.message)
             }
-        }.start()
+        }
     }
 
     private fun getCurrentLanguage(): String {
@@ -132,7 +147,7 @@ class TranslationRepository(private val context: Context) {
     val isTranslationEnabled: Boolean
         get() {
             return try {
-                appDataStore.translationEnabled.blockingFirst()
+                appDataStore.translationEnabled.firstBlocking()
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking translation enabled: " + e.message)
                 false

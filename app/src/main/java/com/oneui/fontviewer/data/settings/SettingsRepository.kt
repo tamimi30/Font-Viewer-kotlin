@@ -9,6 +9,7 @@ import android.app.LocaleManager
 import java.util.Locale
 
 import com.oneui.fontviewer.data.AppDataStore
+import com.oneui.fontviewer.data.firstBlocking
 
 object SettingsRepository {
 
@@ -29,7 +30,7 @@ object SettingsRepository {
         return try {
             AppDataStore.getInstance(context)
                 .languageMode
-                .blockingFirst()
+                .firstBlocking()
         } catch (e: Exception) {
             Log.e(TAG, "Error reading language mode", e)
             LANGUAGE_SYSTEM
@@ -60,7 +61,7 @@ object SettingsRepository {
         return try {
             AppDataStore.getInstance(context)
                 .languageMode
-                .blockingFirst()
+                .firstBlocking()
         } catch (e: Exception) {
             Log.e(TAG, "Error reading language mode from DataStore", e)
             LANGUAGE_SYSTEM
@@ -71,7 +72,7 @@ object SettingsRepository {
         return try {
             AppDataStore.getInstance(context)
                 .themeMode
-                .blockingFirst()
+                .firstBlocking()
         } catch (e: Exception) {
             Log.e(TAG, "Error reading theme mode", e)
             THEME_LIGHT
@@ -82,7 +83,7 @@ object SettingsRepository {
         return try {
             AppDataStore.getInstance(context)
                 .themeAuto
-                .blockingFirst()
+                .firstBlocking()
         } catch (e: Exception) {
             Log.e(TAG, "Error reading theme auto", e)
             true
@@ -94,7 +95,7 @@ object SettingsRepository {
         return try {
             AppDataStore.getInstance(context)
                 .fontPreviewEnabled
-                .blockingFirst()
+                .firstBlocking()
         } catch (e: Exception) {
             Log.e(TAG, "Error reading font preview setting", e)
             true
@@ -105,7 +106,7 @@ object SettingsRepository {
         return try {
             AppDataStore.getInstance(context)
                 .translationEnabled
-                .blockingFirst()
+                .firstBlocking()
         } catch (e: Exception) {
             Log.e(TAG, "Error reading translation setting", e)
             false
@@ -117,7 +118,7 @@ object SettingsRepository {
         return try {
             AppDataStore.getInstance(context)
                 .previewText
-                .blockingFirst()
+                .firstBlocking()
         } catch (e: Exception) {
             Log.e(TAG, "Error reading preview text", e)
             AppDataStore.DEFAULT_PREVIEW_TEXT

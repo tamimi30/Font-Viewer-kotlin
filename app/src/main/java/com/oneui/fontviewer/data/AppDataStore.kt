@@ -3,20 +3,27 @@ package com.oneui.fontviewer.data
 import android.content.Context
 import android.util.Log
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
-import androidx.datastore.preferences.rxjava3.RxPreferenceDataStoreBuilder
-import androidx.datastore.rxjava3.RxDataStore
+import androidx.datastore.preferences.preferencesDataStoreFile
 
-import io.reactivex.rxjava3.core.Flowable
-import io.reactivex.rxjava3.core.Single
-import io.reactivex.rxjava3.functions.Function
-import io.reactivex.rxjava3.processors.BehaviorProcessor
-import io.reactivex.rxjava3.processors.FlowableProcessor
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * AppDataStore - the single app-wide DataStore.
@@ -27,20 +34,29 @@ import io.reactivex.rxjava3.processors.FlowableProcessor
  */
 class AppDataStore private constructor(context: Context) {
 
-    private val dataStore: RxDataStore<Preferences> = RxPreferenceDataStoreBuilder(
-        context.applicationContext,
-        DATASTORE_NAME
-    ).build()
+    /**
+     * نطاق خلفي واحد للتطبيق كله خاص بالإعدادات: يعمل على Dispatchers.IO ولا يُلغى أبداً (Singleton).
+     * يستخدمه DataStore نفسه، ويستخدمه مدراء التفضيلات للكتابات التي لا ننتظر نتيجتها (fire-and-forget).
+     */
+    val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // نفس اسم الملف السابق (settings.preferences_pb) كي تبقى بيانات المستخدمين الحالية كما هي
+    private val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
+        scope = scope,
+        produceFile = { context.applicationContext.preferencesDataStoreFile(DATASTORE_NAME) }
+    )
 
     // ★ نسخة محفوظة في الذاكرة من آخر إعدادات قُرئت من القرص ★
-    // السبب: أجزاء كثيرة من التطبيق تستدعي blockingFirst() على الخيط الرئيسي أثناء الإقلاع
-    // (Application وSortManager ومدراء التفضيلات والمحوّلات وattachBaseContext ...)، وكل استدعاء منها
-    // كان يمر عبر طابور DataStore وخيوط الـ IO ويُبقي الخيط الرئيسي ينتظر. بعد إعادة تشغيل الجهاز يكون
+    // السبب: أجزاء كثيرة من التطبيق تقرأ القيمة بشكل متزامن على الخيط الرئيسي أثناء الإقلاع
+    // (Application وSortManager ومدراء التفضيلات والمحوّلات وattachBaseContext ...)، وكل قراءة منها
+    // كانت تمر عبر طابور DataStore وخيوط الـ IO ويُبقي الخيط الرئيسي ينتظر. بعد إعادة تشغيل الجهاز يكون
     // القرص والمعالج مشغولين بإقلاع النظام، فتتراكم هذه الانتظارات المتتالية حتى تتجاوز 5 ثوانٍ ويظهر
     // "التطبيق لا يستجيب" (ANR). الآن يُقرأ الملف مرة واحدة فقط في الخلفية عند إنشاء الكائن،
-    // وتعود كل القراءات التالية فورياً من الذاكرة، مع بقاء كل Flowable يتلقى التحديثات كما كان.
-    private val snapshotSource: BehaviorProcessor<Preferences> = BehaviorProcessor.create()
-    private val snapshot: FlowableProcessor<Preferences> = snapshotSource.toSerialized()
+    // وتعود كل القراءات التالية فورياً من الذاكرة، مع بقاء كل Flow يتلقى التحديثات كما كان.
+    //
+    // MutableStateFlow يتجاهل تلقائياً القيمة المطابقة تماماً للحالية (كما كان publishSnapshot يفعل)،
+    // و null تعني "لم تصل القراءة الأولى من القرص بعد".
+    private val snapshot = MutableStateFlow<Preferences?>(null)
 
     // Core keys
     private val KEY_LANGUAGE_MODE: Preferences.Key<Int> = intPreferencesKey("language_mode")
@@ -88,65 +104,76 @@ class AppDataStore private constructor(context: Context) {
     }
 
     /**
-     * يبدأ اشتراكاً واحداً دائماً على DataStore يُغذّي النسخة المحفوظة في الذاكرة.
-     * القراءة الفعلية من القرص تحدث على خيط DataStore الخاص به، فلا تحجب الخيط الذي أنشأ الكائن.
+     * يبدأ تجميعاً واحداً دائماً على DataStore يُغذّي النسخة المحفوظة في الذاكرة.
+     * القراءة الفعلية من القرص تحدث على نطاق DataStore الخاص به، فلا تحجب الخيط الذي أنشأ الكائن.
      */
     private fun startSnapshotSync() {
-        dataStore.data().subscribe(
-            { prefs -> publishSnapshot(prefs) },
-            { error ->
-                // تعذّرت قراءة الملف (تلف مثلاً): نمرر إعدادات فارغة ليأخذ كل قارئ قيمه الافتراضية
-                // بدل أن ينتظر للأبد، وهذا نفس ما كان يحدث سابقاً حين يلتقط المستدعي الاستثناء
-                Log.e(TAG, "Failed to read settings, falling back to defaults", error)
-                if (!snapshotSource.hasValue()) {
-                    // NOTE(kotlin-migration): Java used PreferencesFactory.createEmpty(); Kotlin equivalent is emptyPreferences()
-                    snapshot.onNext(emptyPreferences())
+        scope.launch {
+            dataStore.data
+                .catch { error ->
+                    // تعذّرت قراءة الملف (تلف مثلاً): نمرر إعدادات فارغة ليأخذ كل قارئ قيمه الافتراضية
+                    // بدل أن ينتظر للأبد، وهذا نفس ما كان يحدث سابقاً حين يلتقط المستدعي الاستثناء
+                    Log.e(TAG, "Failed to read settings, falling back to defaults", error)
+                    if (snapshot.value == null) {
+                        snapshot.value = emptyPreferences()
+                    }
                 }
-            }
-        )
-    }
-
-    /**
-     * ينشر الإعدادات الجديدة للنسخة المحفوظة، ويتجاهل القيمة المطابقة تماماً للحالية
-     * (كما كان DataStore يفعل) حتى لا يتلقى المراقبون تحديثاً مكرراً لا تغيير فيه.
-     */
-    private fun publishSnapshot(prefs: Preferences) {
-        val current = snapshotSource.value
-        if (current == null || current != prefs) {
-            snapshot.onNext(prefs)
+                .collect { prefs -> snapshot.value = prefs }
         }
     }
 
     /**
-     * مصدر البيانات الذي تقرأ منه كل دوال get...: النسخة المحفوظة في الذاكرة بدل بدء قراءة جديدة من DataStore.
+     * مصدر البيانات الذي تقرأ منه كل خصائص القراءة: النسخة المحفوظة في الذاكرة بدل بدء قراءة جديدة من DataStore.
      * أول قارئ ينتظر فقط إلى أن تصل القراءة الأولى من القرص، وكل من بعده يحصل على القيمة فوراً.
      */
-    private fun data(): Flowable<Preferences> {
-        return snapshot.onBackpressureLatest()
-    }
+    private fun data(): Flow<Preferences> = snapshot.filterNotNull()
 
     /**
      * كل الكتابات تمر من هنا: بعد نجاح الحفظ نحدّث النسخة المحفوظة فوراً قبل أن يستلم المستدعي نتيجة النجاح،
      * فإذا قرأ المستدعي القيمة مباشرة بعد الحفظ (مثل applyTheme بعد setThemeMode) وجد القيمة الجديدة لا القديمة.
      */
-    private fun update(transform: Function<Preferences, Single<Preferences>>): Single<Preferences> {
-        return dataStore.updateDataAsync(transform).doOnSuccess { prefs -> publishSnapshot(prefs) }
+    private suspend fun update(transform: (MutablePreferences) -> Unit): Preferences {
+        val updated = dataStore.updateData { prefs ->
+            prefs.toMutablePreferences().also(transform)
+        }
+        snapshot.value = updated
+        return updated
+    }
+
+    /**
+     * يشغّل كتابة في الخلفية دون انتظار نتيجتها (بديل subscribeOn(io).subscribe(onSuccess, onError)).
+     * تُستدعى [onSuccess] و[onError] على خيط الـ IO.
+     */
+    fun launchWrite(
+        onError: (Throwable) -> Unit,
+        onSuccess: () -> Unit = {},
+        block: suspend () -> Unit
+    ) {
+        scope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                onError(e)
+                return@launch
+            }
+            onSuccess()
+        }
     }
 
     // ════════════════════════════════════════════════════════════
     // Language Mode
     // ════════════════════════════════════════════════════════════
 
-    val languageMode: Flowable<Int>
+    val languageMode: Flow<Int>
         get() = data().map { prefs ->
             prefs[KEY_LANGUAGE_MODE] ?: DEFAULT_LANGUAGE_MODE
         }
 
-    fun setLanguageMode(mode: Int): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setLanguageMode(mode: Int): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_LANGUAGE_MODE] = mode
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -154,29 +181,25 @@ class AppDataStore private constructor(context: Context) {
     // Theme Mode
     // ════════════════════════════════════════════════════════════
 
-    val themeMode: Flowable<Int>
+    val themeMode: Flow<Int>
         get() = data().map { prefs ->
             prefs[KEY_THEME_MODE] ?: DEFAULT_THEME_MODE
         }
 
-    fun setThemeMode(mode: Int): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setThemeMode(mode: Int): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_THEME_MODE] = mode
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val themeAuto: Flowable<Boolean>
+    val themeAuto: Flow<Boolean>
         get() = data().map { prefs ->
             prefs[KEY_THEME_AUTO] ?: DEFAULT_THEME_AUTO
         }
 
-    fun setThemeAuto(auto: Boolean): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setThemeAuto(auto: Boolean): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_THEME_AUTO] = auto
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -186,16 +209,14 @@ class AppDataStore private constructor(context: Context) {
     // Font Preview
     // ════════════════════════════════════════════════════════════
 
-    val fontPreviewEnabled: Flowable<Boolean>
+    val fontPreviewEnabled: Flow<Boolean>
         get() = data().map { prefs ->
             prefs[KEY_FONT_PREVIEW_ENABLED] ?: DEFAULT_FONT_PREVIEW_ENABLED
         }
 
-    fun setFontPreviewEnabled(enabled: Boolean): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setFontPreviewEnabled(enabled: Boolean): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_FONT_PREVIEW_ENABLED] = enabled
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -203,16 +224,14 @@ class AppDataStore private constructor(context: Context) {
     // Translation
     // ════════════════════════════════════════════════════════════
 
-    val translationEnabled: Flowable<Boolean>
+    val translationEnabled: Flow<Boolean>
         get() = data().map { prefs ->
             prefs[KEY_TRANSLATION_ENABLED] ?: DEFAULT_TRANSLATION_ENABLED
         }
 
-    fun setTranslationEnabled(enabled: Boolean): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setTranslationEnabled(enabled: Boolean): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_TRANSLATION_ENABLED] = enabled
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -220,16 +239,14 @@ class AppDataStore private constructor(context: Context) {
     // Preview Text
     // ════════════════════════════════════════════════════════════
 
-    val previewText: Flowable<String>
+    val previewText: Flow<String>
         get() = data().map { prefs ->
             prefs[KEY_PREVIEW_TEXT] ?: DEFAULT_PREVIEW_TEXT
         }
 
-    fun setPreviewText(text: String): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setPreviewText(text: String): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_PREVIEW_TEXT] = text
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -237,20 +254,16 @@ class AppDataStore private constructor(context: Context) {
     // Last Opened Font (Local)
     // ════════════════════════════════════════════════════════════
 
-    val lastOpenedFontPath: Flowable<String>
-        get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_LAST_OPENED_FONT_PATH]!!
-        })
+    val lastOpenedFontPath: Flow<String?>
+        get() = data().map { prefs -> prefs[KEY_LAST_OPENED_FONT_PATH] }
 
-    fun setLastOpenedFontPath(path: String?): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setLastOpenedFontPath(path: String?): Preferences {
+        return update { mutablePrefs ->
             if (path != null) {
                 mutablePrefs[KEY_LAST_OPENED_FONT_PATH] = path
             } else {
                 mutablePrefs.remove(KEY_LAST_OPENED_FONT_PATH)
             }
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -258,20 +271,16 @@ class AppDataStore private constructor(context: Context) {
     // Last Opened Font (Favorites)
     // ════════════════════════════════════════════════════════════
 
-    val lastOpenedFavoriteFontPath: Flowable<String>
-        get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_LAST_OPENED_FAVORITE_FONT_PATH]!!
-        })
+    val lastOpenedFavoriteFontPath: Flow<String?>
+        get() = data().map { prefs -> prefs[KEY_LAST_OPENED_FAVORITE_FONT_PATH] }
 
-    fun setLastOpenedFavoriteFontPath(path: String?): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setLastOpenedFavoriteFontPath(path: String?): Preferences {
+        return update { mutablePrefs ->
             if (path != null) {
                 mutablePrefs[KEY_LAST_OPENED_FAVORITE_FONT_PATH] = path
             } else {
                 mutablePrefs.remove(KEY_LAST_OPENED_FAVORITE_FONT_PATH)
             }
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -279,20 +288,16 @@ class AppDataStore private constructor(context: Context) {
     // Folder Path
     // ════════════════════════════════════════════════════════════
 
-    val folderPath: Flowable<String>
-        get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_FOLDER_PATH]!!
-        })
+    val folderPath: Flow<String?>
+        get() = data().map { prefs -> prefs[KEY_FOLDER_PATH] }
 
-    fun setFolderPath(path: String?): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setFolderPath(path: String?): Preferences {
+        return update { mutablePrefs ->
             if (path != null) {
                 mutablePrefs[KEY_FOLDER_PATH] = path
             } else {
                 mutablePrefs.remove(KEY_FOLDER_PATH)
             }
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -300,29 +305,25 @@ class AppDataStore private constructor(context: Context) {
     // Sort Options (Local Folder Fonts)
     // ════════════════════════════════════════════════════════════
 
-    val sortType: Flowable<String>
+    val sortType: Flow<String>
         get() = data().map { prefs ->
             prefs[KEY_SORT_TYPE] ?: "NAME"
         }
 
-    fun setSortType(type: String): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setSortType(type: String): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_SORT_TYPE] = type
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val sortAscending: Flowable<Boolean>
+    val sortAscending: Flow<Boolean>
         get() = data().map { prefs ->
             prefs[KEY_SORT_ASCENDING] ?: true
         }
 
-    fun setSortAscending(ascending: Boolean): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setSortAscending(ascending: Boolean): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_SORT_ASCENDING] = ascending
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -330,29 +331,25 @@ class AppDataStore private constructor(context: Context) {
     // Sort Options (System Fonts) ★ منفصلة تماماً لتجنب التجمد ★
     // ════════════════════════════════════════════════════════════
 
-    val systemSortType: Flowable<String>
+    val systemSortType: Flow<String>
         get() = data().map { prefs ->
             prefs[KEY_SYSTEM_SORT_TYPE] ?: "NAME"
         }
 
-    fun setSystemSortType(type: String): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setSystemSortType(type: String): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_SYSTEM_SORT_TYPE] = type
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val systemSortAscending: Flowable<Boolean>
+    val systemSortAscending: Flow<Boolean>
         get() = data().map { prefs ->
             prefs[KEY_SYSTEM_SORT_ASCENDING] ?: true
         }
 
-    fun setSystemSortAscending(ascending: Boolean): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setSystemSortAscending(ascending: Boolean): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_SYSTEM_SORT_ASCENDING] = ascending
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -360,29 +357,25 @@ class AppDataStore private constructor(context: Context) {
     // Sort Options (Favorites) ★ منفصلة تماماً لتجنب أي تعارض ★
     // ════════════════════════════════════════════════════════════
 
-    val favoritesSortType: Flowable<String>
+    val favoritesSortType: Flow<String>
         get() = data().map { prefs ->
             prefs[KEY_FAVORITES_SORT_TYPE] ?: "NAME"
         }
 
-    fun setFavoritesSortType(type: String): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setFavoritesSortType(type: String): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_FAVORITES_SORT_TYPE] = type
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val favoritesSortAscending: Flowable<Boolean>
+    val favoritesSortAscending: Flow<Boolean>
         get() = data().map { prefs ->
             prefs[KEY_FAVORITES_SORT_ASCENDING] ?: true
         }
 
-    fun setFavoritesSortAscending(ascending: Boolean): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setFavoritesSortAscending(ascending: Boolean): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_FAVORITES_SORT_ASCENDING] = ascending
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -390,20 +383,16 @@ class AppDataStore private constructor(context: Context) {
     // Last Opened System Font
     // ════════════════════════════════════════════════════════════
 
-    val lastOpenedSystemFontPath: Flowable<String>
-        get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_LAST_OPENED_SYSTEM_FONT_PATH]!!
-        })
+    val lastOpenedSystemFontPath: Flow<String?>
+        get() = data().map { prefs -> prefs[KEY_LAST_OPENED_SYSTEM_FONT_PATH] }
 
-    fun setLastOpenedSystemFontPath(path: String?): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setLastOpenedSystemFontPath(path: String?): Preferences {
+        return update { mutablePrefs ->
             if (path != null) {
                 mutablePrefs[KEY_LAST_OPENED_SYSTEM_FONT_PATH] = path
             } else {
                 mutablePrefs.remove(KEY_LAST_OPENED_SYSTEM_FONT_PATH)
             }
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
@@ -411,9 +400,8 @@ class AppDataStore private constructor(context: Context) {
     // Font Viewer - Last Viewed Font
     // ════════════════════════════════════════════════════════════
 
-    fun setLastViewedFont(path: String?, fileName: String?, realName: String?): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setLastViewedFont(path: String?, fileName: String?, realName: String?): Preferences {
+        return update { mutablePrefs ->
             if (path != null) mutablePrefs[KEY_VIEWER_FONT_PATH] = path
             if (fileName != null) mutablePrefs[KEY_VIEWER_FILE_NAME] = fileName
             if (realName != null) {
@@ -421,49 +409,38 @@ class AppDataStore private constructor(context: Context) {
             } else {
                 mutablePrefs.remove(KEY_VIEWER_REAL_NAME)
             }
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    fun clearLastViewedFont(): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun clearLastViewedFont(): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs.remove(KEY_VIEWER_FONT_PATH)
             mutablePrefs.remove(KEY_VIEWER_FILE_NAME)
             mutablePrefs.remove(KEY_VIEWER_REAL_NAME)
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val viewerFontPath: Flowable<String>
-        get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_VIEWER_FONT_PATH]!!
-        })
+    val viewerFontPath: Flow<String?>
+        get() = data().map { prefs -> prefs[KEY_VIEWER_FONT_PATH] }
 
-    val viewerFileName: Flowable<String>
-        get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_VIEWER_FILE_NAME]!!
-        })
+    val viewerFileName: Flow<String?>
+        get() = data().map { prefs -> prefs[KEY_VIEWER_FILE_NAME] }
 
-    val viewerRealName: Flowable<String>
-        get() = data().map(Function<Preferences, String> { prefs ->
-            prefs[KEY_VIEWER_REAL_NAME]!!
-        })
+    val viewerRealName: Flow<String?>
+        get() = data().map { prefs -> prefs[KEY_VIEWER_REAL_NAME] }
 
 
     // ════════════════════════════════════════════════════════════
     // Font Viewer - Font Weight
     // ════════════════════════════════════════════════════════════
 
-    fun setViewerFontWeight(weight: Float): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setViewerFontWeight(weight: Float): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_VIEWER_FONT_WEIGHT] = weight
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val viewerFontWeight: Flowable<Float>
+    val viewerFontWeight: Flow<Float>
         get() = data().map { prefs ->
             prefs[KEY_VIEWER_FONT_WEIGHT] ?: DEFAULT_VIEWER_FONT_WEIGHT
         }
@@ -472,15 +449,13 @@ class AppDataStore private constructor(context: Context) {
     // Font Viewer - Width Axis (wdth)
     // ════════════════════════════════════════════════════════════
 
-    fun setViewerFontWidth(width: Float): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setViewerFontWidth(width: Float): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_VIEWER_FONT_WIDTH] = width
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val viewerFontWidth: Flowable<Float>
+    val viewerFontWidth: Flow<Float>
         get() = data().map { prefs ->
             prefs[KEY_VIEWER_FONT_WIDTH] ?: DEFAULT_VIEWER_FONT_WIDTH
         }
@@ -489,15 +464,13 @@ class AppDataStore private constructor(context: Context) {
     // Font Viewer - Grade Axis (GRAD)
     // ════════════════════════════════════════════════════════════
 
-    fun setViewerFontGrade(grade: Float): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setViewerFontGrade(grade: Float): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_VIEWER_FONT_GRADE] = grade
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val viewerFontGrade: Flowable<Float>
+    val viewerFontGrade: Flow<Float>
         get() = data().map { prefs ->
             prefs[KEY_VIEWER_FONT_GRADE] ?: DEFAULT_VIEWER_FONT_GRADE
         }
@@ -506,15 +479,13 @@ class AppDataStore private constructor(context: Context) {
     // Font Viewer - Roundness Axis (ROND)
     // ════════════════════════════════════════════════════════════
 
-    fun setViewerFontRoundness(roundness: Float): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setViewerFontRoundness(roundness: Float): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_VIEWER_FONT_ROUNDNESS] = roundness
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val viewerFontRoundness: Flowable<Float>
+    val viewerFontRoundness: Flow<Float>
         get() = data().map { prefs ->
             prefs[KEY_VIEWER_FONT_ROUNDNESS] ?: DEFAULT_VIEWER_FONT_ROUNDNESS
         }
@@ -523,15 +494,13 @@ class AppDataStore private constructor(context: Context) {
     // Font Viewer - Italic Axis (ital)
     // ════════════════════════════════════════════════════════════
 
-    fun setViewerFontItalicAxis(italValue: Float): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setViewerFontItalicAxis(italValue: Float): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_VIEWER_FONT_ITALIC_AXIS] = italValue
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val viewerFontItalicAxis: Flowable<Float>
+    val viewerFontItalicAxis: Flow<Float>
         get() = data().map { prefs ->
             prefs[KEY_VIEWER_FONT_ITALIC_AXIS] ?: DEFAULT_VIEWER_FONT_ITALIC_AXIS
         }
@@ -540,15 +509,13 @@ class AppDataStore private constructor(context: Context) {
     // Font Viewer - Mono Axis (MONO)
     // ════════════════════════════════════════════════════════════
 
-    fun setViewerFontMono(monoValue: Float): Single<Preferences> {
-        return update { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
+    suspend fun setViewerFontMono(monoValue: Float): Preferences {
+        return update { mutablePrefs ->
             mutablePrefs[KEY_VIEWER_FONT_MONO] = monoValue
-            Single.just<Preferences>(mutablePrefs)
         }
     }
 
-    val viewerFontMono: Flowable<Float>
+    val viewerFontMono: Flow<Float>
         get() = data().map { prefs ->
             prefs[KEY_VIEWER_FONT_MONO] ?: DEFAULT_VIEWER_FONT_MONO
         }

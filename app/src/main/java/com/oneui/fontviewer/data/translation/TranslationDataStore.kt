@@ -3,13 +3,18 @@ package com.oneui.fontviewer.data.translation
 import android.content.Context
 import android.util.Log
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.rxjava3.RxPreferenceDataStoreBuilder
-import androidx.datastore.rxjava3.RxDataStore
+import androidx.datastore.preferences.preferencesDataStoreFile
 
-import io.reactivex.rxjava3.core.Single
-import io.reactivex.rxjava3.schedulers.Schedulers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class TranslationDataStore private constructor(context: Context) {
 
@@ -34,24 +39,30 @@ class TranslationDataStore private constructor(context: Context) {
     }
 
     private val context: Context = context.applicationContext
-    private val dataStore: RxDataStore<Preferences> = RxPreferenceDataStoreBuilder(
-        this.context,
-        DATASTORE_NAME
-    ).build()
 
-    fun getTranslation(key: String?): Single<String> {
+    // نطاق خلفي واحد (Singleton) لا يُلغى: يستخدمه DataStore والكتابات التي لا ننتظر نتيجتها
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // نفس اسم الملف السابق (translation_cache.preferences_pb) كي يبقى الكاش الحالي كما هو
+    private val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
+        scope = scope,
+        produceFile = { this.context.preferencesDataStoreFile(DATASTORE_NAME) }
+    )
+
+    /** يعيد الترجمة المحفوظة، أو نصاً فارغاً إذا لم توجد أو تعذّرت القراءة. */
+    suspend fun getTranslation(key: String?): String {
         if (key == null || key.isEmpty()) {
-            return Single.just("")
+            return ""
         }
 
         val prefKey = stringPreferencesKey(key)
-        return dataStore.data()
-            .firstOrError()
-            .map { prefs ->
-                val value = prefs.get(prefKey)
-                value ?: ""
-            }
-            .onErrorReturnItem("")
+        return try {
+            dataStore.data.first()[prefKey] ?: ""
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     fun saveTranslation(key: String?, value: String?) {
@@ -60,48 +71,51 @@ class TranslationDataStore private constructor(context: Context) {
         }
 
         val prefKey = stringPreferencesKey(key)
-        dataStore.updateDataAsync { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
-            mutablePrefs[prefKey] = value
-            Single.just<Preferences>(mutablePrefs)
+        scope.launch {
+            try {
+                dataStore.updateData { prefs ->
+                    prefs.toMutablePreferences().also { it[prefKey] = value }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving translation: " + e.message)
+                return@launch
+            }
+            Log.d(TAG, "Translation cached successfully")
+            checkAndCleanCache()
         }
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { _ ->
-                    Log.d(TAG, "Translation cached successfully")
-                    checkAndCleanCache()
-                },
-                { error -> Log.e(TAG, "Error saving translation: " + error.message) }
-            )
     }
 
     private fun checkAndCleanCache() {
-        dataStore.data()
-            .firstOrError()
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { prefs ->
-                    val size = prefs.asMap().size
-                    if (size > MAX_CACHE_SIZE) {
-                        Log.i(TAG, "Cache size exceeded $MAX_CACHE_SIZE, clearing cache")
-                        clearCache()
-                    }
-                },
-                { error -> Log.e(TAG, "Error checking cache size: " + error.message) }
-            )
+        scope.launch {
+            try {
+                val size = dataStore.data.first().asMap().size
+                if (size > MAX_CACHE_SIZE) {
+                    Log.i(TAG, "Cache size exceeded $MAX_CACHE_SIZE, clearing cache")
+                    clearCache()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking cache size: " + e.message)
+            }
+        }
     }
 
     fun clearCache() {
-        dataStore.updateDataAsync { prefs ->
-            val mutablePrefs = prefs.toMutablePreferences()
-            mutablePrefs.clear()
-            Single.just<Preferences>(mutablePrefs)
+        scope.launch {
+            try {
+                dataStore.updateData { prefs ->
+                    prefs.toMutablePreferences().also { it.clear() }
+                }
+                Log.i(TAG, "Translation cache cleared")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error clearing cache: " + e.message)
+            }
         }
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { _ -> Log.i(TAG, "Translation cache cleared") },
-                { error -> Log.e(TAG, "Error clearing cache: " + error.message) }
-            )
     }
 
 }

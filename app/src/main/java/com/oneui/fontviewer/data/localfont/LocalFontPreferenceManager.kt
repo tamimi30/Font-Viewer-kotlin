@@ -4,8 +4,7 @@ import android.content.Context
 import android.util.Log
 
 import com.oneui.fontviewer.data.AppDataStore
-
-import io.reactivex.rxjava3.schedulers.Schedulers
+import com.oneui.fontviewer.data.firstBlocking
 
 class LocalFontPreferenceManager @JvmOverloads constructor(
     context: Context,
@@ -19,9 +18,9 @@ class LocalFontPreferenceManager @JvmOverloads constructor(
     init {
         try {
             cachedLastOpenedPath = if (isFavoritesList)
-                dataStore.lastOpenedFavoriteFontPath.blockingFirst()
+                dataStore.lastOpenedFavoriteFontPath.firstBlocking()
             else
-                dataStore.lastOpenedFontPath.blockingFirst()
+                dataStore.lastOpenedFontPath.firstBlocking()
         } catch (e: Exception) {
             cachedLastOpenedPath = null
             Log.d(TAG, "No cached last opened font")
@@ -36,15 +35,15 @@ class LocalFontPreferenceManager @JvmOverloads constructor(
 
         cachedLastOpenedPath = fontPath
 
-        (if (isFavoritesList)
-            dataStore.setLastOpenedFavoriteFontPath(fontPath)
-        else
-            dataStore.setLastOpenedFontPath(fontPath))
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { Log.d(TAG, "Saved last opened font: $fontPath") },
-                { error -> Log.e(TAG, "Error saving last opened font", error) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving last opened font", error) },
+            onSuccess = { Log.d(TAG, "Saved last opened font: $fontPath") }
+        ) {
+            if (isFavoritesList)
+                dataStore.setLastOpenedFavoriteFontPath(fontPath)
+            else
+                dataStore.setLastOpenedFontPath(fontPath)
+        }
     }
 
     fun isLastOpenedFont(fontPath: String?): Boolean {
@@ -61,18 +60,16 @@ class LocalFontPreferenceManager @JvmOverloads constructor(
             return
         }
 
-        dataStore.setFolderPath(folderPath)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { Log.d(TAG, "Saved font folder path: $folderPath") },
-                { error -> Log.e(TAG, "Error saving folder path", error) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving folder path", error) },
+            onSuccess = { Log.d(TAG, "Saved font folder path: $folderPath") }
+        ) { dataStore.setFolderPath(folderPath) }
     }
 
     val fontFolderPath: String?
         get() {
             return try {
-                dataStore.folderPath.blockingFirst()
+                dataStore.folderPath.firstBlocking()
             } catch (e: Exception) {
                 Log.d(TAG, "No folder path found")
                 null

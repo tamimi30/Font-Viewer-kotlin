@@ -4,8 +4,7 @@ import android.content.Context
 import android.util.Log
 
 import com.oneui.fontviewer.data.AppDataStore
-
-import io.reactivex.rxjava3.schedulers.Schedulers
+import com.oneui.fontviewer.data.firstBlocking
 
 class SystemFontPreferenceManager(context: Context) {
 
@@ -19,7 +18,7 @@ class SystemFontPreferenceManager(context: Context) {
 
     init {
         try {
-            cachedLastOpenedPath = dataStore.lastOpenedSystemFontPath.blockingFirst()
+            cachedLastOpenedPath = dataStore.lastOpenedSystemFontPath.firstBlocking()
         } catch (e: Exception) {
             cachedLastOpenedPath = null
             Log.d(TAG, "No cached last opened system font")
@@ -34,18 +33,16 @@ class SystemFontPreferenceManager(context: Context) {
 
         cachedLastOpenedPath = fontPath
 
-        dataStore.setLastOpenedSystemFontPath(fontPath)
-            .subscribeOn(Schedulers.io())
-            .subscribe(
-                { _ -> Log.d(TAG, "Saved last opened system font: $fontPath") },
-                { error -> Log.e(TAG, "Error saving last opened system font", error) }
-            )
+        dataStore.launchWrite(
+            onError = { error -> Log.e(TAG, "Error saving last opened system font", error) },
+            onSuccess = { Log.d(TAG, "Saved last opened system font: $fontPath") }
+        ) { dataStore.setLastOpenedSystemFontPath(fontPath) }
     }
 
     val lastOpenedFont: String?
         get() {
             try {
-                cachedLastOpenedPath = dataStore.lastOpenedSystemFontPath.blockingFirst()
+                cachedLastOpenedPath = dataStore.lastOpenedSystemFontPath.firstBlocking()
                 return cachedLastOpenedPath
             } catch (e: Exception) {
                 Log.d(TAG, "No last opened system font found")
